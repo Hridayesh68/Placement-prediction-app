@@ -3,13 +3,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import joblib
+import joblib
+import os
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "xgb_model.pkl")
+xgb = joblib.load(MODEL_PATH)
 
 # ----------------------------
 # Load models
 # ----------------------------
 lr = joblib.load("linear_model.pkl")
 rf = joblib.load("rf_model.pkl")
-xgb = joblib.load("xgb_model.pkl")
+# xgb = joblib.load("xgb_model.pkl")
 scaler = joblib.load("scaler.pkl")
 
 st.set_page_config(
