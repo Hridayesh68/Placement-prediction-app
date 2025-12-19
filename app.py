@@ -1,9 +1,9 @@
-
 import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import joblib
+import requests
 from pathlib import Path
 
 # ----------------------------
@@ -17,30 +17,45 @@ st.set_page_config(
 st.title("🎓 Student Placement Prediction System")
 
 # ----------------------------
-# Paths
+# Hugging Face Model URLs
 # ----------------------------
-BASE_DIR = Path(__file__).parent
+HF_BASE_URL = "https://huggingface.co/USERNAME/hridayeshdebsarma6/resolve/main/"
 
-MODEL_PATHS = {
-    "lr": BASE_DIR / "linear_model.pkl",
-    "rf": BASE_DIR / "rf_model.pkl",
-    "xgb": BASE_DIR / "xgb_model.pkl",
-    "scaler": BASE_DIR / "scaler.pkl",
+MODEL_FILES = {
+    "lr": "linear_model.pkl",
+    "rf": "rf_model.pkl",
+    "xgb": "xgb_model.pkl",
+    "scaler": "scaler.pkl",
 }
 
+BASE_DIR = Path(__file__).parent
+
 # ----------------------------
-# Load models safely
+# Download model if not exists
+# ----------------------------
+def download_model(filename):
+    file_path = BASE_DIR / filename
+    if not file_path.exists():
+        url = HF_BASE_URL + filename
+        r = requests.get(url)
+        r.raise_for_status()
+        with open(file_path, "wb") as f:
+            f.write(r.content)
+    return file_path
+
+# ----------------------------
+# Load models safely (cached)
 # ----------------------------
 @st.cache_resource
 def load_models():
     try:
-        lr = joblib.load(MODEL_PATHS["lr"])
-        rf = joblib.load(MODEL_PATHS["rf"])
-        xgb = joblib.load(MODEL_PATHS["xgb"])
-        scaler = joblib.load(MODEL_PATHS["scaler"])
+        lr = joblib.load(download_model(MODEL_FILES["lr"]))
+        rf = joblib.load(download_model(MODEL_FILES["rf"]))
+        xgb = joblib.load(download_model(MODEL_FILES["xgb"]))
+        scaler = joblib.load(download_model(MODEL_FILES["scaler"]))
         return lr, rf, xgb, scaler
     except Exception as e:
-        st.error("❌ Error loading models. Check requirements & model files.")
+        st.error("❌ Error loading models from Hugging Face.")
         st.exception(e)
         st.stop()
 
