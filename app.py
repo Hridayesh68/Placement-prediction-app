@@ -1,28 +1,50 @@
+
 import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import joblib
-import joblib
-import os
-
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "xgb_model.pkl")
-xgb = joblib.load(MODEL_PATH)
+from pathlib import Path
 
 # ----------------------------
-# Load models
+# Streamlit config (MUST be first)
 # ----------------------------
-lr = joblib.load("linear_model.pkl")
-rf = joblib.load("rf_model.pkl")
-# xgb = joblib.load("xgb_model.pkl")
-scaler = joblib.load("scaler.pkl")
-
 st.set_page_config(
     page_title="Placement Prediction",
     layout="wide"
 )
 
 st.title("🎓 Student Placement Prediction System")
+
+# ----------------------------
+# Paths
+# ----------------------------
+BASE_DIR = Path(__file__).parent
+
+MODEL_PATHS = {
+    "lr": BASE_DIR / "linear_model.pkl",
+    "rf": BASE_DIR / "rf_model.pkl",
+    "xgb": BASE_DIR / "xgb_model.pkl",
+    "scaler": BASE_DIR / "scaler.pkl",
+}
+
+# ----------------------------
+# Load models safely
+# ----------------------------
+@st.cache_resource
+def load_models():
+    try:
+        lr = joblib.load(MODEL_PATHS["lr"])
+        rf = joblib.load(MODEL_PATHS["rf"])
+        xgb = joblib.load(MODEL_PATHS["xgb"])
+        scaler = joblib.load(MODEL_PATHS["scaler"])
+        return lr, rf, xgb, scaler
+    except Exception as e:
+        st.error("❌ Error loading models. Check requirements & model files.")
+        st.exception(e)
+        st.stop()
+
+lr, rf, xgb, scaler = load_models()
 
 # ----------------------------
 # Model selection
@@ -41,24 +63,22 @@ projects = st.number_input("Projects", 0, 10)
 certifications = st.number_input("Workshops / Certifications", 0, 10)
 aptitude = st.slider("Aptitude Test Score", 0, 100)
 soft_skills = st.slider("Soft Skills Rating", 0.0, 5.0)
-extra = st.selectbox("Extracurricular Activities", ["Yes","No"])
-training = st.selectbox("Placement Training", ["Yes","No"])
 
+extra = st.selectbox("Extracurricular Activities", ["Yes", "No"])
+training = st.selectbox("Placement Training", ["Yes", "No"])
 
-ssc = st.number_input("Class 10 Marks", min_value=0, max_value=100)
-hsc = st.number_input("Class 12 Marks", min_value=0, max_value=100)
-input_data = {
-    "SSC_Marks": ssc,
-    "HSC_Marks": hsc
-}
-
+ssc = st.number_input("Class 10 Marks", 0, 100)
+hsc = st.number_input("Class 12 Marks", 0, 100)
 
 extra = 1 if extra == "Yes" else 0
 training = 1 if training == "Yes" else 0
 
-features = np.array([[cgpa, internships, projects, certifications,
-                      aptitude, soft_skills, extra, training,
-                      ssc, hsc]])
+# Feature order MUST match training
+features = np.array([[
+    cgpa, internships, projects, certifications,
+    aptitude, soft_skills, extra, training,
+    ssc, hsc
+]])
 
 scaled_features = scaler.transform(features)
 
@@ -69,8 +89,8 @@ if st.button("Predict Placement"):
 
     if model_choice == "Linear Regression":
         raw_score = lr.predict(scaled_features)[0]
-        probability = min(max(raw_score, 0), 1) * 100
-        prediction = 1 if raw_score >= 0.5 else 0
+        probability = np.clip(raw_score, 0, 1) * 100
+        prediction = int(raw_score >= 0.5)
         model_used = "Linear Regression"
 
     elif model_choice == "Random Forest":
@@ -84,19 +104,19 @@ if st.button("Predict Placement"):
         model_used = "XGBoost"
 
     # ----------------------------
-    # Output result
+    # Output
     # ----------------------------
     if prediction == 1:
         st.success(f"🎉 PLACED ({model_used}) | Confidence: {probability:.2f}%")
     else:
-        st.error(f"❌ NOT PLACED ({model_used}) | Confidence: {100-probability:.2f}%")
+        st.error(f"❌ NOT PLACED ({model_used}) | Confidence: {100 - probability:.2f}%")
 
     # ----------------------------
-    # PIE CHART
+    # Pie Chart
     # ----------------------------
     fig, ax = plt.subplots()
     ax.pie(
-        [probability, 100-probability],
+        [probability, 100 - probability],
         labels=["Placed", "Not Placed"],
         autopct="%1.1f%%",
         startangle=90
@@ -105,7 +125,7 @@ if st.button("Predict Placement"):
     st.pyplot(fig)
 
     # ----------------------------
-    # FEATURE IMPORTANCE (Tree models only)
+    # Feature Importance
     # ----------------------------
     if model_choice != "Linear Regression":
         st.subheader("📊 Feature Importance")
@@ -117,9 +137,9 @@ if st.button("Predict Placement"):
         )
 
         feature_names = [
-            "CGPA","Internships","Projects","Certifications",
-            "Aptitude","Soft Skills","Extracurricular",
-            "Placement Training","SSC","HSC"
+            "CGPA", "Internships", "Projects", "Certifications",
+            "Aptitude", "Soft Skills", "Extracurricular",
+            "Placement Training", "SSC", "HSC"
         ]
 
         fig2, ax2 = plt.subplots()
@@ -131,28 +151,24 @@ if st.button("Predict Placement"):
         st.info("Feature importance not available for Linear Regression.")
 
     # ----------------------------
-    # DOWNLOAD REPORT
+    # Download Report
     # ----------------------------
     report = pd.DataFrame({
         "Feature": [
-            "CGPA","Internships","Projects","Certifications",
-            "Aptitude","Soft Skills","Extracurricular",
-            "Placement Training","SSC","HSC"
+            "CGPA", "Internships", "Projects", "Certifications",
+            "Aptitude", "Soft Skills", "Extracurricular",
+            "Placement Training", "SSC", "HSC"
         ],
         "Value": features[0]
     })
 
     report["Model Used"] = model_used
     report["Prediction"] = "Placed" if prediction == 1 else "Not Placed"
-    report["Probability (%)"] = probability
-
-    csv = report.to_csv(index=False)
+    report["Probability (%)"] = round(probability, 2)
 
     st.download_button(
         "⬇️ Download Prediction Report",
-        csv,
+        report.to_csv(index=False),
         "placement_prediction_report.csv",
         "text/csv"
     )
-
-
