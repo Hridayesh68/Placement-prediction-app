@@ -3,190 +3,246 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import joblib
+import time
 from huggingface_hub import hf_hub_download
 
 # -----------------------------
-# Streamlit config
+# 1. Configuration & Styling
 # -----------------------------
 st.set_page_config(
-    page_title="Student Placement Prediction",
+    page_title="Placement Predictor Pro",
     page_icon="🎓",
     layout="wide"
 )
 
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button { 
+        width: 100%; 
+        border-radius: 8px; 
+        height: 3em; 
+        background-color: #4CAF50; 
+        color: white; 
+        font-weight: bold;
+        border: none;
+    }
+    .stButton>button:hover { background-color: #45a049; }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("🎓 Student Placement Prediction System")
+st.markdown("### AI-Driven Career Insights & Probability Analysis")
 st.markdown("---")
 
 # -----------------------------
-# Hugging Face Repo Info
+# 2. Load Models from Hugging Face
 # -----------------------------
 REPO_ID = "hridayeshdebsarma6/placement-prediction"
-MODEL_FILES = {
-    "lr": "linear_model.pkl",
-    "rf": "rf_model.pkl",
-    "xgb": "xgb_model.pkl",
-    "scaler": "scaler.pkl"
-}
 
-# -----------------------------
-# Load models (cached)
-# -----------------------------
-@st.cache_resource
-def load_models():
-    # Access the token from st.secrets
-    try:
-        hf_token = st.secrets["HF_TOKEN"]
-    except KeyError:
-        st.error("🔑 HF_TOKEN not found in Secrets. Please add it to continue.")
-        st.stop()
+# Renamed function to force cache reset
+@st.cache_resource(show_spinner="Downloading models...")
+def load_models_v2():
+    """Downloads models one by one. Returns a dictionary."""
+    models = {}
+    hf_token = st.secrets.get("HF_TOKEN", None)
 
     try:
-        loaded_objs = {}
-        for key, filename in MODEL_FILES.items():
-            path = hf_hub_download(
-                repo_id=REPO_ID,
-                filename=filename,
-                token=hf_token
-            )
-            loaded_objs[key] = joblib.load(path)
+        # 1. Load Scaler
+        path_s = hf_hub_download(repo_id=REPO_ID, filename="scaler.pkl", token=hf_token)
+        models["scaler"] = joblib.load(path_s)
         
-        return loaded_objs["lr"], loaded_objs["rf"], loaded_objs["xgb"], loaded_objs["scaler"]
+        # 2. Load Logistic Regression
+        path_lr = hf_hub_download(repo_id=REPO_ID, filename="logistic_regression.pkl", token=hf_token)
+        models["Logistic Regression"] = joblib.load(path_lr)
+
+        # 3. Load Random Forest
+        path_rf = hf_hub_download(repo_id=REPO_ID, filename="random_forest.pkl", token=hf_token)
+        models["Random Forest"] = joblib.load(path_rf)
+
+        # 4. Load XGBoost
+        path_xgb = hf_hub_download(repo_id=REPO_ID, filename="xgboost.pkl", token=hf_token)
+        models["XGBoost"] = joblib.load(path_xgb)
+
+        return models
 
     except Exception as e:
-        st.error(f"❌ Error loading models: {e}")
+        st.error(f"❌ Failed to load a file. Error: {e}")
         st.stop()
 
-lr, rf, xgb, scaler = load_models()
+# Load all artifacts
+loaded_artifacts = load_models_v2()
+
+# Safe Extraction (No .pop() to prevent cache errors)
+if "scaler" in loaded_artifacts:
+    scaler = loaded_artifacts["scaler"]
+else:
+    st.error("❌ Critical Error: 'scaler' not found in loaded artifacts.")
+    st.write("Keys found:", list(loaded_artifacts.keys()))
+    st.stop()
 
 # -----------------------------
-# Sidebar - Model Selection
+# 3. Sidebar - Model Selection
 # -----------------------------
 with st.sidebar:
-    st.header("Settings")
-    model_choice = st.selectbox(
-        "Choose Model",
-        ["Random Forest", "XGBoost", "Linear Regression"]
+    st.header("⚙️ Analysis Settings")
+    
+    # User selects which model to use
+    selected_model_name = st.selectbox(
+        "Choose AI Model", 
+        ["XGBoost", "Random Forest", "Logistic Regression"]
     )
-    st.info("Note: Random Forest and XGBoost usually provide better classification accuracy.")
+    
+    if selected_model_name in loaded_artifacts:
+        current_model = loaded_artifacts[selected_model_name]
+    else:
+        st.error(f"Selected model {selected_model_name} not found in loaded artifacts!")
+        st.stop()
+    
+    st.info(f"Using: **{selected_model_name}**")
 
 # -----------------------------
-# User Inputs (Organized in Columns)
+# 4. User Inputs
 # -----------------------------
-st.subheader("📥 Enter Student Details")
+st.subheader("📝 Enter Candidate Details")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    cgpa = st.number_input("CGPA (0.0 - 10.0)", 0.0, 10.0, 7.5, step=0.1)
-    internships = st.number_input("Number of Internships", 0, 10, 1)
-    projects = st.number_input("Number of Projects", 0, 10, 2)
-    certifications = st.number_input("Workshops / Certifications", 0, 10, 1)
-    aptitude = st.slider("Aptitude Test Score", 0, 100, 75)
+    st.markdown("##### 📚 Academic Scores")
+    cgpa = st.number_input("CGPA (0-10)", 0.0, 10.0, 7.5, step=0.1)
+    ssc = st.number_input("10th Marks (%)", 0, 100, 85)
+    hsc = st.number_input("12th Marks (%)", 0, 100, 85)
 
 with col2:
-    soft_skills = st.slider("Soft Skills Rating", 0.0, 5.0, 4.0)
-    ssc = st.number_input("SSC Marks (%)", 0, 100, 80)
-    hsc = st.number_input("HSC Marks (%)", 0, 100, 80)
-    extra = st.selectbox("Extracurricular Activities", ["Yes", "No"])
+    st.markdown("##### 💼 Experience")
+    internships = st.number_input("Internships", 0, 10, 1)
+    projects = st.number_input("Projects", 0, 10, 2)
+    workshops = st.number_input("Workshops/Certs", 0, 10, 1)
+
+with col3:
+    st.markdown("##### 🧠 Skills & Others")
+    aptitude = st.slider("Aptitude Score", 0, 100, 70)
+    soft_skills = st.slider("Soft Skills (0-5)", 0.0, 5.0, 3.5, 0.1)
+    extra = st.selectbox("Extracurriculars", ["Yes", "No"])
     training = st.selectbox("Placement Training", ["Yes", "No"])
 
-# Convert Categorical to Binary
+# -----------------------------
+# 5. Preprocessing
+# -----------------------------
 extra_val = 1 if extra == "Yes" else 0
 training_val = 1 if training == "Yes" else 0
 
-# -----------------------------
-# Preprocessing
-# -----------------------------
-# Define feature names exactly as they were during scaler.fit()
-# Replace these names if they differ in your training dataset!
-# -----------------------------
-# Preprocessing
-# -----------------------------
-# Updated feature names to match your training 'fit' exactly
-feature_names = [
-    "CGPA", "Internships", "Projects", "Certifications",
-    "AptitudeTestScore", "SoftSkillsRating", "ExtracurricularActivities",
-    "PlacementTraining", "SSC_Marks", "HSC_Marks"
+academic_score = (ssc + hsc + (cgpa * 10)) / 3
+experience_score = internships + projects + workshops
+
+feature_cols = [
+    "CGPA", "Internships", "Projects", "Workshops_Certifications", 
+    "AptitudeTestScore", "SoftSkillsRating", 
+    "ExtracurricularActivities", "PlacementTraining", 
+    "SSC_Marks", "HSC_Marks", 
+    "Academic_Score", "Experience_Score"
 ]
 
 input_data = pd.DataFrame([[
-    cgpa, internships, projects, certifications,
-    aptitude, soft_skills, extra_val, training_val,
-    ssc, hsc
-]], columns=feature_names)
-
-# Now the scaler will recognize "Certifications" and won't throw a ValueError
-scaled_features = scaler.transform(input_data)
+    cgpa, internships, projects, workshops,
+    aptitude, soft_skills, 
+    extra_val, training_val, 
+    ssc, hsc, 
+    academic_score, experience_score
+]], columns=feature_cols)
 
 # -----------------------------
-# Prediction Logic
+# 6. Prediction Logic
 # -----------------------------
-if st.button("🔮 Predict Placement Status", use_container_width=True):
-    
-    if model_choice == "Linear Regression":
-        raw_score = lr.predict(scaled_features)[0]
-        probability = float(np.clip(raw_score, 0, 1)) * 100
-        prediction = 1 if raw_score >= 0.5 else 0
-    elif model_choice == "Random Forest":
-        probability = rf.predict_proba(scaled_features)[0][1] * 100
-        prediction = rf.predict(scaled_features)[0]
-    else: # XGBoost
-        probability = xgb.predict_proba(scaled_features)[0][1] * 100
-        prediction = xgb.predict(scaled_features)[0]
+st.markdown("---")
 
-    st.markdown("---")
+if st.button("🚀 Analyze Placement Probability"):
     
-    # Result Display
-    res_col1, res_col2 = st.columns([1, 1])
+    # 1. Scale Data
+    scaled_data = scaler.transform(input_data)
     
-    with res_col1:
-        st.subheader("Result")
+    # 2. Predict
+    prediction = current_model.predict(scaled_data)[0]
+    probability = current_model.predict_proba(scaled_data)[0][1] * 100
+    
+    # 3. Display Results
+    r_col1, r_col2 = st.columns([1, 1])
+    
+    with r_col1:
+        st.subheader("Prediction Result")
         if prediction == 1:
-            st.success(f"### 🎉 Result: PLACED")
-            st.write(f"**Model:** {model_choice}")
-            st.write(f"**Confidence:** {probability:.2f}%")
+            st.success(f"### 🎉 Likely to be Placed!")
+            st.metric(label="Placement Probability", value=f"{probability:.2f}%", delta="High Chance")
+            st.balloons()
+            status_text = "High Probability of Placement"
         else:
-            st.error(f"### ❌ Result: NOT PLACED")
-            st.write(f"**Model:** {model_choice}")
-            st.write(f"**Likelihood of non-placement:** {100 - probability:.2f}%")
+            st.error(f"### ⚠️ Needs Improvement")
+            st.metric(label="Placement Probability", value=f"{probability:.2f}%", delta="- Low Chance")
+            st.markdown(f"**Action Plan:** Focus on increasing projects or Aptitude scores.")
+            status_text = "Improvement Needed"
 
-        # CSV Download
-        report = input_data.copy()
-        report["Model"] = model_choice
-        report["Prediction"] = "Placed" if prediction == 1 else "Not Placed"
-        report["Probability"] = f"{probability:.2f}%"
-        
-        csv = report.to_csv(index=False).encode('utf-8')
-        st.download_button("⬇️ Download This Report", data=csv, file_name="prediction.csv", mime="text/csv")
-
-    with res_col2:
-        # Pie Chart Visualization
-        fig, ax = plt.subplots(figsize=(4, 4))
-        ax.pie(
-            [probability, 100 - probability],
-            labels=["Placed", "Not Placed"],
-            autopct="%1.1f%%",
-            startangle=90,
-            colors=['#2ecc71', '#e74c3c']
-        )
-        ax.set_title("Success Probability")
+    with r_col2:
+        st.subheader("Model Insights")
+        fig, ax = plt.subplots(figsize=(3, 3))
+        ax.pie([100-probability, probability], labels=['Risk', 'Success'], 
+               autopct='%1.1f%%', startangle=90, colors=['#e74c3c', '#2ecc71'], 
+               wedgeprops={'width': 0.4})
         st.pyplot(fig)
-        plt.close(fig)
+
+    # 4. Feature Importance
+    if selected_model_name in ["Random Forest", "XGBoost"]:
+        st.subheader("📊 Key Factors")
+        importances = current_model.feature_importances_
+        indices = np.argsort(importances)[-5:] 
+        
+        fig2, ax2 = plt.subplots(figsize=(8, 3))
+        ax2.barh(range(len(indices)), importances[indices], align='center', color='#4CAF50')
+        ax2.set_yticks(range(len(indices)))
+        ax2.set_yticklabels([feature_cols[i] for i in indices])
+        st.pyplot(fig2)
 
     # -----------------------------
-    # Feature Importance
+    # 7. Generate & Download Report
     # -----------------------------
-    if model_choice != "Linear Regression":
-        st.subheader("📌 Impact of Features")
-        importance = rf.feature_importances_ if model_choice == "Random Forest" else xgb.feature_importances_
-        
-        # Sort importance for better visual
-        feat_imp = pd.Series(importance, index=feature_names).sort_values()
-        
-        fig2, ax2 = plt.subplots(figsize=(8, 4))
-        feat_imp.plot(kind='barh', ax=ax2, color='skyblue')
-        ax2.set_title(f"Key Factors Influencing {model_choice} Prediction")
-        st.pyplot(fig2)
-        plt.close(fig2)
-    else:
-        st.info("Feature importance visual is not available for Linear Regression.")
+    st.markdown("---")
+    st.subheader("📄 Download Report")
+
+    # Create Report Content
+    report_content = f"""
+    🎓 PLACEMENT PREDICTION REPORT
+    =========================================
+    Date: {time.strftime("%Y-%m-%d %H:%M:%S")}
+    Model Used: {selected_model_name}
+
+    ---------------
+    CANDIDATE PROFILE
+    ---------------
+    CGPA: {cgpa}
+    10th Marks: {ssc}%
+    12th Marks: {hsc}%
+    Projects: {projects}
+    Internships: {internships}
+    Aptitude Score: {aptitude}
+    Soft Skills: {soft_skills}/5.0
+
+    ---------------
+    AI ANALYSIS RESULT
+    ---------------
+    Prediction: {status_text}
+    Probability Score: {probability:.2f}%
+
+    ---------------
+    RECOMMENDATION
+    ---------------
+    {"Keep up the great work! Your profile is strong." if prediction == 1 else "Focus on building more projects and improving your aptitude score."}
+    
+    Generated by Placement Predictor Pro
+    """
+
+    st.download_button(
+        label="📥 Download Analysis Report (TXT)",
+        data=report_content,
+        file_name=f"placement_report_{int(time.time())}.txt",
+        mime="text/plain"
+    )
